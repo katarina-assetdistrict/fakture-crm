@@ -4,6 +4,7 @@ import { SheetsApi } from '../services/sheetsApi';
 import { useAuth } from './AuthContext';
 import { genId, danas } from '../utils/format';
 import type { ImportRow } from '../utils/importParse';
+import { normalizeFirma } from '../utils/importParse';
 
 interface DataContextValue {
   loading: boolean;
@@ -160,13 +161,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     let imported = 0;
 
     for (const row of rows) {
-      const firma = firme.find(f => f.naziv.toLowerCase() === row.firma.toLowerCase());
+      const firma = firme.find(f => normalizeFirma(f.naziv) === normalizeFirma(row.firma));
       if (!firma) {
         skipped.push(`${row.broj_fakture}: firma "${row.firma}" nije pronađena`);
         continue;
       }
 
-      let klijent = nextKlijenti.find(k => k.naziv.toLowerCase() === row.klijent.toLowerCase());
+      let klijent = nextKlijenti.find(k => normalizeFirma(k.naziv) === normalizeFirma(row.klijent));
       if (!klijent) {
         klijent = { id: genId(), naziv: row.klijent, adresa: '', pib: '', mb: '', email: '', telefon: '', kreiran: danas() };
         nextKlijenti.push(klijent);

@@ -1,3 +1,17 @@
+/** Normalizuje naziv firme za fuzzy matching:
+ *  "BEST APP DOO" → "best app doo"
+ *  "Best App d.o.o." → "best app doo"
+ *  "Best Digital j.s.c." → "best digital jsc"
+ */
+export function normalizeFirma(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\./g, '')         // ukloni tačke: "d.o.o." → "doo"
+    .replace(/[,\-_/\\]/g, ' ') // separatori → razmak
+    .replace(/\s+/g, ' ')       // višestruki razmaci → jedan
+    .trim();
+}
+
 export interface ImportRow {
   firma: string;
   klijent: string;

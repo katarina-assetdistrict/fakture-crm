@@ -287,9 +287,13 @@ function IzvodImportModal({
                 <p className="text-xs text-amber-600 mt-1.5">Čuva se lokalno u browseru.</p>
               </div>
 
-              <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-xs text-slate-600 space-y-1">
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-xs text-slate-600 space-y-1.5">
                 <p><strong>Kako radi:</strong> Claude čita izvod i pronalazi prilivne transakcije (uplate na račun).</p>
                 <p>Svaku transakciju možete mapirati na otvorenu fakturu — automatski pokušava da poveže po imenu platioca i iznosu.</p>
+                <p className="text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                  ⚠️ <strong>Lični uplozi, pozajmice osnivača, povrati troškova</strong> — ostavite "Preskočiti".
+                  Ove transakcije nisu plaćanja faktura i ne trebaju se evidentirati.
+                </p>
                 <p><strong>Otvorene fakture:</strong> {openFakture.length} faktura sa nepodmirenim dugom</p>
               </div>
             </div>

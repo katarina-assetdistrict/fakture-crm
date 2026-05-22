@@ -5,7 +5,7 @@ import { useData } from '../context/DataContext';
 import { useFirma } from '../context/FirmaContext';
 import { formatRSD, formatDatum, godineFaktura } from '../utils/format';
 import { exportFaktureExcel } from '../utils/export';
-import { parseImportFile } from '../utils/importParse';
+import { parseImportFile, normalizeFirma } from '../utils/importParse';
 import { fileToBase64, extractFaktureFromPDF } from '../services/claudeApi';
 import type { ImportRow } from '../utils/importParse';
 
@@ -156,7 +156,7 @@ function ImportModal({
   onImport,
   onClose,
 }: {
-  firme: { naziv: string }[];
+  firme: { id: string; naziv: string }[];
   onImport: (rows: ImportRow[]) => Promise<ImportResult>;
   onClose: () => void;
 }) {
@@ -170,7 +170,9 @@ function ImportModal({
   const [claudeKey, setClaudeKeyState] = useState(getClaudeKey());
   const [processingMsg, setProcessingMsg] = useState('');
 
-  const firmaNames = new Set(firme.map(f => f.naziv.toLowerCase()));
+  // Normalized lookup: "BEST APP DOO" matches "Best App d.o.o."
+  const findFirma = (naziv: string) =>
+    firme.find(f => normalizeFirma(f.naziv) === normalizeFirma(naziv));
 
   const handleFile = async (file: File) => {
     setParseError('');
@@ -230,8 +232,8 @@ function ImportModal({
     }
   };
 
-  const unknownFirme = [...new Set(rows.filter(r => !firmaNames.has(r.firma.toLowerCase())).map(r => r.firma))];
-  const validCount = rows.filter(r => firmaNames.has(r.firma.toLowerCase())).length;
+  const unknownFirme = [...new Set(rows.filter(r => !findFirma(r.firma)).map(r => r.firma))];
+  const validCount = rows.filter(r => !!findFirma(r.firma)).length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -321,7 +323,10 @@ function ImportModal({
               {unknownFirme.length > 0 && (
                 <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
                   <AlertTriangle size={15} className="mt-0.5 flex-shrink-0" />
-                  <span>Nepoznate firme (preskočeno): <strong>{unknownFirme.join(', ')}</strong></span>
+                  <span>
+                    Claude je pronašao nepoznate firme — izaberite ispravnu iz padajućeg menija ili će biti preskočene:&nbsp;
+                    <strong>{unknownFirme.join(', ')}</strong>
+                  </span>
                 </div>
               )}
               <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -333,10 +338,32 @@ function ImportModal({
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {rows.map((r, i) => {
-                      const ok = firmaNames.has(r.firma.toLowerCase());
+                      const matched = findFirma(r.firma);
                       return (
-                        <tr key={i} className={ok ? '' : 'bg-red-50'}>
-                          <td className="px-3 py-2"><span className={`font-medium ${ok ? 'text-gray-700' : 'text-red-600'}`}>{r.firma}{!ok && ' ✗'}</span></td>
+                        <tr key={i} className={matched ? '' : 'bg-amber-50'}>
+                          <td className="px-3 py-2">
+                            {matched ? (
+                              <span className="font-medium text-gray-700">{matched.naziv}</span>
+                            ) : (
+                              <div className="space-y-1">
+                                <span className="text-amber-700 text-xs">"{r.firma}"</span>
+                                <select
+                                  value=""
+                                  onChange={e => {
+                                    if (e.target.value) {
+                                      const updated = [...rows];
+                                      updated[i] = { ...updated[i], firma: e.target.value };
+                                      setRows(updated);
+                                    }
+                                  }}
+                                  className="block w-full border border-amber-300 rounded px-1.5 py-1 bg-white text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                >
+                                  <option value="">— Izaberi firmu —</option>
+                                  {firme.map(f => <option key={f.id} value={f.naziv}>{f.naziv}</option>)}
+                                </select>
+                              </div>
+                            )}
+                          </td>
                           <td className="px-3 py-2 text-gray-700">{r.klijent}</td>
                           <td className="px-3 py-2 font-mono text-gray-900">{r.broj_fakture}</td>
                           <td className="px-3 py-2 text-gray-600">{r.datum}</td>
@@ -349,7 +376,7 @@ function ImportModal({
                 </table>
               </div>
               <p className="text-xs text-gray-400">
-                {validCount} faktura će biti uvezeno{unknownFirme.length > 0 && `, ${rows.length - validCount} preskočeno (nepoznata firma)`}.
+                {validCount} faktura će biti uvezeno{unknownFirme.length > 0 && `, ${rows.length - validCount} preskočeno`}.
               </p>
             </div>
           )}
