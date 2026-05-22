@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Users, FileText, Receipt, Building2, LogOut, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, Users, FileText, Receipt, Building2, LogOut, RefreshCw, Banknote } from 'lucide-react';
 import { useFirma } from '../context/FirmaContext';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
@@ -8,6 +8,7 @@ const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/klijenti', label: 'Klijenti', icon: Users },
   { to: '/fakture', label: 'Fakture', icon: FileText },
+  { to: '/uplate', label: 'Uplate', icon: Banknote },
 ];
 
 export default function Layout() {

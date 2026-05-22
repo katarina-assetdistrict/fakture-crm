@@ -12,6 +12,7 @@ import KlijentDetalji from './pages/KlijentDetalji';
 import Fakture from './pages/Fakture';
 import NovaFaktura from './pages/NovaFaktura';
 import FakturaDetalji from './pages/FakturaDetalji';
+import Uplate from './pages/Uplate';
 import { Loader2 } from 'lucide-react';
 
 function AppRoutes() {
@@ -39,6 +40,7 @@ function AppRoutes() {
               <Route path="fakture" element={<Fakture />} />
               <Route path="fakture/nova" element={<NovaFaktura />} />
               <Route path="fakture/:id" element={<FakturaDetalji />} />
+              <Route path="uplate" element={<Uplate />} />
             </Route>
           </Routes>
         </BrowserRouter>

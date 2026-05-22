@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { TrendingDown, CheckCircle2, Clock, Download, ChevronRight } from 'lucide-react';
+import { TrendingDown, CheckCircle2, Clock, Download, ChevronRight, Banknote } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useFirma } from '../context/FirmaContext';
 import { formatRSD, godineFaktura } from '../utils/format';
@@ -78,6 +78,44 @@ export default function Dashboard() {
           <div className="text-xs text-red-400 mt-1">{stanja.filter(s => s.dug > 0).length} klijenata duguje</div>
         </div>
       </div>
+
+      {/* Poslednje uplate */}
+      {uplate.length > 0 && (() => {
+        const recentUplate = [...uplate]
+          .filter(u => !selectedFirmaId || u.firmaId === selectedFirmaId)
+          .sort((a, b) => b.datum.localeCompare(a.datum))
+          .slice(0, 5);
+        return (
+          <div className="bg-white rounded-xl border border-gray-200 mb-6">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+                <Banknote size={16} className="text-green-600" /> Poslednje uplate
+              </h2>
+              <Link to="/uplate" className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+                Sve uplate <ChevronRight size={12} />
+              </Link>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {recentUplate.map(u => {
+                const f = fakture.find(f => f.id === u.fakturaId);
+                const k = klijenti.find(k => k.id === f?.klijentId);
+                return (
+                  <div key={u.id} className="flex items-center gap-4 px-5 py-3">
+                    <div className="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                      <Banknote size={13} className="text-green-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-gray-800 font-medium">{k?.naziv ?? '—'}</div>
+                      <div className="text-xs text-gray-400">{f?.broj ?? '—'} · {u.datum}</div>
+                    </div>
+                    <div className="text-sm font-semibold text-green-700 flex-shrink-0">{formatRSD(u.iznos)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Tabela stanja */}
       <div className="bg-white rounded-xl border border-gray-200">
