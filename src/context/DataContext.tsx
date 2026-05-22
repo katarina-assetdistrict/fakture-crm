@@ -18,6 +18,7 @@ interface DataContextValue {
   deleteKlijent: (id: string) => Promise<void>;
 
   addFaktura: (f: Omit<Faktura, 'id' | 'kreirana'>) => Promise<void>;
+  updateFaktura: (f: Faktura) => Promise<void>;
   deleteFaktura: (id: string) => Promise<void>;
 
   addUplata: (u: Omit<Uplata, 'id' | 'kreirana'>) => Promise<void>;
@@ -116,6 +117,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     await api().saveFakture(next);
   }, [fakture]);
 
+  const updateFaktura = useCallback(async (f: Faktura) => {
+    const next = fakture.map(x => x.id === f.id ? f : x);
+    setFakture(next);
+    await api().saveFakture(next);
+  }, [fakture]);
+
   const deleteFaktura = useCallback(async (id: string) => {
     const nextF = fakture.filter(f => f.id !== id);
     const nextU = uplate.filter(u => u.fakturaId !== id);
@@ -203,7 +210,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     <DataContext.Provider value={{
       loading, error, firme, klijenti, fakture, uplate,
       addKlijent, updateKlijent, deleteKlijent,
-      addFaktura, deleteFaktura,
+      addFaktura, updateFaktura, deleteFaktura,
       addUplata, deleteUplata,
       batchImportFakture,
       getUplateZaFakturu, getPlacenoZaFakturu, getFaktureZaKlijenta,

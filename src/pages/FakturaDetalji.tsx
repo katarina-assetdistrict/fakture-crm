@@ -1,14 +1,18 @@
 import { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Plus, Trash2, X, Check, AlertCircle, CheckCircle2, Building2, Loader2 } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, X, Check, AlertCircle, CheckCircle2, Building2, Loader2, Edit2 } from 'lucide-react';
 import { useData } from '../context/DataContext';
-import { formatRSD, formatDatum, danas } from '../utils/format';
+import { formatRSD, formatDatum, danas, genId } from '../utils/format';
+import type { Faktura, StavkaFakture } from '../types';
+
+const praznaStavka = (): StavkaFakture => ({ id: genId(), opis: '', kolicina: 1, cenaPoJedinici: 0, ukupno: 0 });
 
 export default function FakturaDetalji() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { fakture, klijenti, firme, addUplata, deleteUplata, deleteFaktura, getUplateZaFakturu, getPlacenoZaFakturu } = useData();
+  const { fakture, klijenti, firme, addUplata, deleteUplata, deleteFaktura, updateFaktura, getUplateZaFakturu, getPlacenoZaFakturu } = useData();
   const [modalUplata, setModalUplata] = useState(false);
+  const [modalIzmena, setModalIzmena] = useState(false);
   const [brisanjeUplataId, setBrisanjeUplataId] = useState<string | null>(null);
   const [brisanjeFaktura, setBrisanjeFaktura] = useState(false);
   const [novaUplata, setNovaUplata] = useState({ iznos: '', datum: danas(), napomena: '' });
@@ -70,9 +74,16 @@ export default function FakturaDetalji() {
             {klijent && <Link to={`/klijenti/${klijent.id}`} className="text-blue-600 hover:underline text-sm">{klijent.naziv}</Link>}
           </div>
         </div>
-        <button onClick={() => setBrisanjeFaktura(true)} className="flex items-center gap-1.5 text-red-500 hover:text-red-700 text-sm border border-red-200 hover:border-red-400 px-3 py-1.5 rounded-lg transition-colors">
-          <Trash2 size={13} /> Izbriši fakturu
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setModalIzmena(true)}
+            className="flex items-center gap-1.5 text-blue-600 hover:text-blue-800 text-sm border border-blue-200 hover:border-blue-400 px-3 py-1.5 rounded-lg transition-colors">
+            <Edit2 size={13} /> Izmeni
+          </button>
+          <button onClick={() => setBrisanjeFaktura(true)}
+            className="flex items-center gap-1.5 text-red-500 hover:text-red-700 text-sm border border-red-200 hover:border-red-400 px-3 py-1.5 rounded-lg transition-colors">
+            <Trash2 size={13} /> Izbriši fakturu
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-5 gap-4 mb-6">
@@ -147,7 +158,23 @@ export default function FakturaDetalji() {
         </div>
       </div>
 
-      {/* Modals */}
+      {/* ── Modals ─────────────────────────────────────────────────────────────── */}
+
+      {modalIzmena && (
+        <IzmenaFaktureModal
+          faktura={faktura}
+          firme={firme}
+          klijenti={klijenti}
+          onSave={async (updated) => {
+            setSaving(true);
+            try { await updateFaktura(updated); setModalIzmena(false); }
+            finally { setSaving(false); }
+          }}
+          saving={saving}
+          onClose={() => setModalIzmena(false)}
+        />
+      )}
+
       {modalUplata && (
         <Modal title="Nova uplata" onClose={() => { setModalUplata(false); setGreska(''); }}>
           {greska && <div className="mb-3 text-sm text-red-600 bg-red-50 px-3 py-2 rounded">{greska}</div>}
@@ -195,6 +222,185 @@ export default function FakturaDetalji() {
     </div>
   );
 }
+
+// ── Izmena fakture modal ──────────────────────────────────────────────────────
+
+function IzmenaFaktureModal({
+  faktura,
+  firme,
+  klijenti,
+  onSave,
+  saving,
+  onClose,
+}: {
+  faktura: Faktura;
+  firme: { id: string; naziv: string }[];
+  klijenti: { id: string; naziv: string }[];
+  onSave: (f: Faktura) => Promise<void>;
+  saving: boolean;
+  onClose: () => void;
+}) {
+  const [firmaId, setFirmaId] = useState(faktura.firmaId);
+  const [klijentId, setKlijentId] = useState(faktura.klijentId);
+  const [broj, setBroj] = useState(faktura.broj);
+  const [datum, setDatum] = useState(faktura.datum);
+  const [datumDospeca, setDatumDospeca] = useState(faktura.datumDospeca);
+  const [napomena, setNapomena] = useState(faktura.napomena ?? '');
+  const [stavke, setStavke] = useState<StavkaFakture[]>(
+    faktura.stavke.map(s => ({ ...s }))
+  );
+  const [greska, setGreska] = useState('');
+
+  const updateStavka = (sid: string, field: keyof StavkaFakture, val: string | number) => {
+    setStavke(prev => prev.map(s => {
+      if (s.id !== sid) return s;
+      const nova = { ...s, [field]: val };
+      if (field === 'kolicina' || field === 'cenaPoJedinici')
+        nova.ukupno = Number(nova.kolicina) * Number(nova.cenaPoJedinici);
+      return nova;
+    }));
+  };
+
+  const ukupnoIznos = stavke.reduce((s, st) => s + st.ukupno, 0);
+  const inp = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+
+  const sacuvaj = async () => {
+    if (!firmaId) { setGreska('Izaberite firmu.'); return; }
+    if (!klijentId) { setGreska('Izaberite klijenta.'); return; }
+    if (!broj.trim()) { setGreska('Unesite broj fakture.'); return; }
+    if (stavke.length === 0) { setGreska('Dodajte barem jednu stavku.'); return; }
+    if (stavke.some(s => !s.opis.trim())) { setGreska('Sve stavke moraju imati opis.'); return; }
+    setGreska('');
+    await onSave({
+      ...faktura,
+      firmaId,
+      klijentId,
+      broj: broj.trim(),
+      datum,
+      datumDospeca,
+      napomena,
+      stavke,
+      ukupanIznos: ukupnoIznos,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+          <h3 className="text-lg font-semibold text-gray-900">Izmeni fakturu</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          {greska && <div className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">{greska}</div>}
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Firma *</label>
+              <select value={firmaId} onChange={e => setFirmaId(e.target.value)} className={inp}>
+                <option value="">— Izaberite firmu —</option>
+                {firme.map(f => <option key={f.id} value={f.id}>{f.naziv}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Klijent *</label>
+              <select value={klijentId} onChange={e => setKlijentId(e.target.value)} className={inp}>
+                <option value="">— Izaberite klijenta —</option>
+                {klijenti.map(k => <option key={k.id} value={k.id}>{k.naziv}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Broj fakture *</label>
+              <input value={broj} onChange={e => setBroj(e.target.value)} className={inp} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Datum fakture</label>
+              <input type="date" value={datum} onChange={e => setDatum(e.target.value)} className={inp} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Datum dospeća</label>
+              <input type="date" value={datumDospeca} onChange={e => setDatumDospeca(e.target.value)} className={inp} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Napomena</label>
+              <input value={napomena} onChange={e => setNapomena(e.target.value)} placeholder="Opciono..." className={inp} />
+            </div>
+          </div>
+
+          {/* Stavke */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-2">Stavke *</label>
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-500 text-xs uppercase">
+                    <th className="px-3 py-2 text-left font-medium">Opis</th>
+                    <th className="px-3 py-2 text-right font-medium w-20">Kol.</th>
+                    <th className="px-3 py-2 text-right font-medium w-32">Cena (RSD)</th>
+                    <th className="px-3 py-2 text-right font-medium w-32">Ukupno</th>
+                    <th className="px-3 py-2 w-8"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {stavke.map(s => (
+                    <tr key={s.id}>
+                      <td className="px-2 py-1.5">
+                        <input value={s.opis} onChange={e => updateStavka(s.id, 'opis', e.target.value)}
+                          placeholder="Opis usluge/robe"
+                          className="w-full border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <input type="number" min="0" value={s.kolicina} onChange={e => updateStavka(s.id, 'kolicina', Number(e.target.value))}
+                          className="w-full border border-gray-200 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <input type="number" min="0" value={s.cenaPoJedinici} onChange={e => updateStavka(s.id, 'cenaPoJedinici', Number(e.target.value))}
+                          className="w-full border border-gray-200 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-medium text-gray-900">{formatRSD(s.ukupno)}</td>
+                      <td className="px-2 py-1.5">
+                        {stavke.length > 1 && (
+                          <button onClick={() => setStavke(prev => prev.filter(x => x.id !== s.id))}
+                            className="text-gray-300 hover:text-red-500"><Trash2 size={13} /></button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-gray-50 border-t border-gray-200">
+                    <td colSpan={3} className="px-3 py-2 text-right text-sm font-semibold text-gray-700">Ukupno:</td>
+                    <td className="px-3 py-2 text-right text-base font-bold text-gray-900">{formatRSD(ukupnoIznos)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <button onClick={() => setStavke(prev => [...prev, praznaStavka()])}
+              className="mt-2 flex items-center gap-1.5 text-blue-600 hover:text-blue-800 text-sm font-medium">
+              <Plus size={14} /> Dodaj stavku
+            </button>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-100 flex-shrink-0">
+          <button onClick={onClose} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Otkaži</button>
+          <button onClick={sacuvaj} disabled={saving}
+            className="flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+            {saving ? 'Čuvam...' : 'Sačuvaj izmene'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Generic modal ─────────────────────────────────────────────────────────────
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
