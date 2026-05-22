@@ -1,3 +1,4 @@
+import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -46,13 +47,31 @@ function AppRoutes() {
   );
 }
 
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: string | null }> {
+  state = { error: null };
+  static getDerivedStateFromError(e: Error) { return { error: e.message }; }
+  render() {
+    if (this.state.error) return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+        <div className="bg-red-900/30 border border-red-500 rounded-xl p-6 max-w-md text-center">
+          <p className="text-red-300 font-semibold mb-2">Greška pri pokretanju</p>
+          <p className="text-red-400 text-sm font-mono">{this.state.error}</p>
+        </div>
+      </div>
+    );
+    return this.props.children;
+  }
+}
+
 export default function App() {
-  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? 'placeholder';
+  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || 'placeholder';
   return (
-    <GoogleOAuthProvider clientId={clientId}>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </GoogleOAuthProvider>
+    <ErrorBoundary>
+      <GoogleOAuthProvider clientId={clientId}>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </GoogleOAuthProvider>
+    </ErrorBoundary>
   );
 }
