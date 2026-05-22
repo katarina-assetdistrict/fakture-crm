@@ -11,6 +11,12 @@ export interface TransakcijaIzvoda {
   uplatioc: string;
 }
 
+export interface IzvodData {
+  firma: string | null;
+  datum_izvoda: string;
+  transakcije: TransakcijaIzvoda[];
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export async function fileToBase64(file: File): Promise<string> {
@@ -61,6 +67,28 @@ function extractJSON<T>(text: string): T {
   }
 }
 
+function extractJSONObject<T>(text: string): T {
+  // Try whole text first (Claude sometimes returns pure JSON)
+  const trimmed = text.trim();
+  if (trimmed.startsWith('{')) {
+    try { return JSON.parse(trimmed) as T; } catch { /* fall through */ }
+  }
+  // Walk the string to find the outermost { ... } block
+  const start = text.indexOf('{');
+  if (start === -1) throw new Error('Claude nije vratio validan JSON objekat. Pokušajte ponovo.');
+  let depth = 0, end = -1;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
+  }
+  if (end === -1) throw new Error('Claude nije vratio validan JSON objekat. Pokušajte ponovo.');
+  try {
+    return JSON.parse(text.slice(start, end + 1)) as T;
+  } catch {
+    throw new Error('Greška pri parsiranju JSON-a iz Claude odgovora.');
+  }
+}
+
 // ── Ekstrakcija faktura ───────────────────────────────────────────────────────
 
 export async function extractFaktureFromPDF(
@@ -96,21 +124,40 @@ Ako u dokumentu ima više faktura, vrati sve kao niz.`;
 
 // ── Ekstrakcija izvoda ────────────────────────────────────────────────────────
 
+export async function extractIzvodData(
+  apiKey: string,
+  pdfBase64: string
+): Promise<IzvodData> {
+  const prompt = `Analiziraj ovaj bankarski izvod. Izvuci SVE prilivne transakcije (uplate na račun, pozitivni iznosi).
+Ako nema prilivnih transakcija, vrati prazan niz za "transakcije".
+Vrati SAMO JSON objekat, bez ikakvog drugog teksta:
+{"firma":"naziv firme čiji je račun ili null","datum_izvoda":"YYYY-MM-DD","transakcije":[{"datum":"YYYY-MM-DD","iznos":0,"svrha":"...","uplatioc":"..."}]}
+Iznosi kao pozitivni brojevi bez valute i separatora hiljada.`;
+
+  const text = await callClaude(apiKey, prompt, pdfBase64);
+  const raw = extractJSONObject<{ firma?: string | null; datum_izvoda?: string; transakcije?: unknown[] }>(text);
+
+  return {
+    firma: raw.firma ? String(raw.firma).trim() : null,
+    datum_izvoda: String(raw.datum_izvoda ?? '').trim(),
+    transakcije: (raw.transakcije ?? []).map((r: unknown) => {
+      const t = r as Record<string, unknown>;
+      return {
+        datum: String(t.datum ?? '').trim(),
+        iznos: Number(t.iznos) || 0,
+        svrha: String(t.svrha ?? '').trim(),
+        uplatioc: String(t.uplatioc ?? '').trim(),
+      };
+    }),
+  };
+}
+
+// ── Legacy: direct uplata extraction (kept for backward compat) ───────────────
+
 export async function extractUplateFromIzvod(
   apiKey: string,
   pdfBase64: string
 ): Promise<TransakcijaIzvoda[]> {
-  const prompt = `Izvuci sve uplate/transakcije iz bankovnog izvoda i vrati SAMO JSON array:
-[{"datum":"YYYY-MM-DD","iznos":0,"svrha":"...","uplatioc":"..."}]
-Samo prilivne transakcije (uplate koje su stigle na račun).
-Iznos kao pozitivan broj bez valute.`;
-
-  const text = await callClaude(apiKey, prompt, pdfBase64);
-  const rows = extractJSON<TransakcijaIzvoda[]>(text);
-  return rows.map(r => ({
-    datum: String(r.datum ?? '').trim(),
-    iznos: Number(r.iznos) || 0,
-    svrha: String(r.svrha ?? '').trim(),
-    uplatioc: String(r.uplatioc ?? '').trim(),
-  }));
+  const data = await extractIzvodData(apiKey, pdfBase64);
+  return data.transakcije;
 }

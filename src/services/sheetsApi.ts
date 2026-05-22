@@ -1,4 +1,4 @@
-import type { Firma, Klijent, Faktura, Uplata } from '../types';
+import type { Firma, Klijent, Faktura, Uplata, Izvod } from '../types';
 
 const BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
@@ -14,6 +14,7 @@ const HEADERS = {
   Klijenti: ['id', 'naziv', 'adresa', 'pib', 'mb', 'email', 'telefon', 'kreiran'],
   Fakture:  ['id', 'firmaId', 'klijentId', 'broj', 'datum', 'datumDospeca', 'stavkeJson', 'ukupanIznos', 'napomena', 'kreirana'],
   Uplate:   ['id', 'fakturaId', 'firmaId', 'iznos', 'datum', 'napomena', 'kreirana'],
+  Izvodi:   ['id', 'firmaId', 'firmaIme', 'datumIzvoda', 'nazivFajla', 'ukupnoPrilivno', 'brojTransakcija', 'kreiran'],
 };
 
 const toRow = {
@@ -21,6 +22,7 @@ const toRow = {
   klijent:  (k: Klijent): string[] => [k.id, k.naziv, k.adresa, k.pib, k.mb, k.email, k.telefon, k.kreiran],
   faktura:  (f: Faktura): string[] => [f.id, f.firmaId, f.klijentId, f.broj, f.datum, f.datumDospeca, JSON.stringify(f.stavke), String(f.ukupanIznos), f.napomena ?? '', f.kreirana],
   uplata:   (u: Uplata): string[]  => [u.id, u.fakturaId, u.firmaId, String(u.iznos), u.datum, u.napomena, u.kreirana],
+  izvod:    (i: Izvod): string[]   => [i.id, i.firmaId, i.firmaIme, i.datumIzvoda, i.nazivFajla, String(i.ukupnoPrilivno), String(i.brojTransakcija), i.kreiran],
 };
 
 const fromRow = {
@@ -28,6 +30,7 @@ const fromRow = {
   klijent: (r: string[]): Klijent  => ({ id: r[0], naziv: r[1], adresa: r[2]||'', pib: r[3]||'', mb: r[4]||'', email: r[5]||'', telefon: r[6]||'', kreiran: r[7]||'' }),
   faktura: (r: string[]): Faktura  => ({ id: r[0], firmaId: r[1], klijentId: r[2], broj: r[3], datum: r[4], datumDospeca: r[5]||'', stavke: JSON.parse(r[6]||'[]'), ukupanIznos: Number(r[7])||0, napomena: r[8]||'', kreirana: r[9]||'' }),
   uplata:  (r: string[]): Uplata   => ({ id: r[0], fakturaId: r[1], firmaId: r[2], iznos: Number(r[3])||0, datum: r[4], napomena: r[5]||'', kreirana: r[6]||'' }),
+  izvod:   (r: string[]): Izvod    => ({ id: r[0], firmaId: r[1]||'', firmaIme: r[2]||'', datumIzvoda: r[3]||'', nazivFajla: r[4]||'', ukupnoPrilivno: Number(r[5])||0, brojTransakcija: Number(r[6])||0, kreiran: r[7]||'' }),
 };
 
 // ── API Class ─────────────────────────────────────────────────────────────────
@@ -74,6 +77,7 @@ export class SheetsApi {
     await api.writeRaw('Klijenti', [HEADERS.Klijenti]);
     await api.writeRaw('Fakture',  [HEADERS.Fakture]);
     await api.writeRaw('Uplate',   [HEADERS.Uplate]);
+    await api.writeRaw('Izvodi',   [HEADERS.Izvodi]);
     return id;
   }
 
@@ -100,18 +104,33 @@ export class SheetsApi {
     return rows.slice(1); // skip header row
   }
 
+  // Like readSheet but returns [] gracefully if the sheet doesn't exist yet
+  private async readSheetOptional(sheet: string): Promise<string[][]> {
+    const res = await fetch(
+      `${BASE}/${this.spreadsheetId}/values/${encodeURIComponent(sheet)}`,
+      { headers: this.h }
+    );
+    if (res.status === 401) throw new Error('TOKEN_EXPIRED');
+    if (!res.ok) return []; // sheet doesn't exist — that's fine
+    const data = await res.json();
+    const rows: string[][] = data.values || [];
+    return rows.slice(1);
+  }
+
   async loadAll() {
-    const [firmeRows, klijentiRows, faktureRows, uplateRows] = await Promise.all([
+    const [firmeRows, klijentiRows, faktureRows, uplateRows, izvodiRows] = await Promise.all([
       this.readSheet('Firme'),
       this.readSheet('Klijenti'),
       this.readSheet('Fakture'),
       this.readSheet('Uplate'),
+      this.readSheetOptional('Izvodi'),
     ]);
     return {
       firme:    firmeRows.filter(r => r[0]).map(fromRow.firma),
       klijenti: klijentiRows.filter(r => r[0]).map(fromRow.klijent),
       fakture:  faktureRows.filter(r => r[0]).map(fromRow.faktura),
       uplate:   uplateRows.filter(r => r[0]).map(fromRow.uplata),
+      izvodi:   izvodiRows.filter(r => r[0]).map(fromRow.izvod),
     };
   }
 
@@ -121,4 +140,17 @@ export class SheetsApi {
   async saveKlijenti(k: Klijent[])      { await this.writeRaw('Klijenti', [HEADERS.Klijenti, ...k.map(toRow.klijent)]); }
   async saveFakture(f: Faktura[])       { await this.writeRaw('Fakture',  [HEADERS.Fakture,  ...f.map(toRow.faktura)]); }
   async saveUplate(u: Uplata[])         { await this.writeRaw('Uplate',   [HEADERS.Uplate,   ...u.map(toRow.uplata)]); }
+
+  async saveIzvodi(izvodi: Izvod[]): Promise<void> {
+    try {
+      await this.writeRaw('Izvodi', [HEADERS.Izvodi, ...izvodi.map(toRow.izvod)]);
+    } catch {
+      // Sheet doesn't exist yet (old spreadsheet) — create it and retry
+      await fetch(`${BASE}/${this.spreadsheetId}:batchUpdate`, {
+        method: 'POST', headers: this.h,
+        body: JSON.stringify({ requests: [{ addSheet: { properties: { title: 'Izvodi' } } }] }),
+      });
+      await this.writeRaw('Izvodi', [HEADERS.Izvodi, ...izvodi.map(toRow.izvod)]);
+    }
+  }
 }

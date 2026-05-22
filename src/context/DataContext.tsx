@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import type { Firma, Klijent, Faktura, Uplata } from '../types';
+import type { Firma, Klijent, Faktura, Uplata, Izvod } from '../types';
 import { SheetsApi } from '../services/sheetsApi';
 import { useAuth } from './AuthContext';
 import { genId, danas } from '../utils/format';
@@ -13,6 +13,7 @@ interface DataContextValue {
   klijenti: Klijent[];
   fakture: Faktura[];
   uplate: Uplata[];
+  izvodi: Izvod[];
 
   addKlijent: (k: Omit<Klijent, 'id' | 'kreiran'>) => Promise<void>;
   updateKlijent: (k: Klijent) => Promise<void>;
@@ -24,6 +25,8 @@ interface DataContextValue {
 
   addUplata: (u: Omit<Uplata, 'id' | 'kreirana'>) => Promise<void>;
   deleteUplata: (id: string) => Promise<void>;
+
+  addIzvod: (i: Omit<Izvod, 'id' | 'kreiran'>) => Promise<void>;
 
   batchImportFakture: (rows: ImportRow[]) => Promise<{ imported: number; skipped: string[] }>;
 
@@ -44,6 +47,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [klijenti, setKlijenti] = useState<Klijent[]>([]);
   const [fakture, setFakture] = useState<Faktura[]>([]);
   const [uplate, setUplate] = useState<Uplata[]>([]);
+  const [izvodi, setIzvodi] = useState<Izvod[]>([]);
   const apiRef = useRef<SheetsApi | null>(null);
 
   // Initialize: on login, create or load spreadsheet
@@ -69,6 +73,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         setKlijenti(data.klijenti);
         setFakture(data.fakture);
         setUplate(data.uplate);
+        setIzvodi(data.izvodi);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : 'Greška pri učitavanju podataka';
         setError(msg);
@@ -146,6 +151,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     await api().saveUplate(next);
   }, [uplate]);
 
+  // ── Izvodi ─────────────────────────────────────────────────────────────────
+
+  const addIzvod = useCallback(async (data: Omit<Izvod, 'id' | 'kreiran'>) => {
+    const i: Izvod = { ...data, id: genId(), kreiran: danas() };
+    const next = [...izvodi, i];
+    setIzvodi(next);
+    await api().saveIzvodi(next);
+  }, [izvodi]);
+
   // ── Batch import ──────────────────────────────────────────────────────────
 
   const batchImportFakture = useCallback(async (rows: ImportRow[]) => {
@@ -209,10 +223,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <DataContext.Provider value={{
-      loading, error, firme, klijenti, fakture, uplate,
+      loading, error, firme, klijenti, fakture, uplate, izvodi,
       addKlijent, updateKlijent, deleteKlijent,
       addFaktura, updateFaktura, deleteFaktura,
       addUplata, deleteUplata,
+      addIzvod,
       batchImportFakture,
       getUplateZaFakturu, getPlacenoZaFakturu, getFaktureZaKlijenta,
     }}>

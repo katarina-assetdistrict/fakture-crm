@@ -46,6 +46,17 @@ export interface Uplata {
   kreirana: string;
 }
 
+export interface Izvod {
+  id: string;
+  firmaId: string;
+  firmaIme: string;
+  datumIzvoda: string;
+  nazivFajla: string;
+  ukupnoPrilivno: number;
+  brojTransakcija: number;
+  kreiran: string;
+}
+
 export interface StanjeKlijenta {
   klijent: Klijent;
   ukupnoFakturisano: number;
