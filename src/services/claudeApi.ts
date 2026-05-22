@@ -1,7 +1,8 @@
+import Anthropic from '@anthropic-ai/sdk';
+import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
 import type { ImportRow } from '../utils/importParse';
 
-const API_URL = 'https://api.anthropic.com/v1/messages';
-const MODEL   = 'claude-opus-4-5';
+const MODEL = 'claude-opus-4-5';
 
 export interface TransakcijaIzvoda {
   datum: string;
@@ -21,41 +22,36 @@ export async function fileToBase64(file: File): Promise<string> {
   });
 }
 
+function makeClient(apiKey: string) {
+  return new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+}
+
 async function callClaude(apiKey: string, prompt: string, pdfBase64: string): Promise<string> {
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-      'anthropic-dangerous-allow-browser': 'true',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 4096,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } },
-          { type: 'text', text: prompt },
-        ],
-      }],
-    }),
+  const client = makeClient(apiKey);
+
+  const message: MessageParam = {
+    role: 'user',
+    content: [
+      {
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 },
+      },
+      { type: 'text', text: prompt },
+    ] as MessageParam['content'],
+  };
+
+  const msg = await client.messages.create({
+    model: MODEL,
+    max_tokens: 4096,
+    messages: [message],
   });
 
-  if (!res.ok) {
-    const body = await res.text();
-    if (res.status === 401) throw new Error('Neispravan Anthropic API ključ');
-    if (res.status === 400) throw new Error(`Neispravan zahtjev: ${body}`);
-    throw new Error(`Claude API greška ${res.status}: ${body}`);
-  }
-
-  const data = await res.json();
-  return data.content[0].text as string;
+  const block = msg.content[0];
+  if (block.type !== 'text') throw new Error('Neočekivani tip odgovora od Claude');
+  return block.text;
 }
 
 function extractJSON<T>(text: string): T {
-  // Try to find a JSON array in the response
   const match = text.match(/\[[\s\S]*\]/);
   if (!match) throw new Error('Claude nije vratio validan JSON niz. Pokušajte ponovo.');
   try {
@@ -81,7 +77,7 @@ Pravila:
 - klijent: naziv firme koja PRIMA fakturu (kupac)
 - broj_fakture: broj/oznaka fakture
 - datum: datum u formatu YYYY-MM-DD
-- iznos: ukupan iznos za plaćanje kao broj bez valute i bez separatora hiljada (npr. 150000, ne 150.000 ni 150,000)
+- iznos: ukupan iznos za plaćanje kao broj bez valute i bez separatora hiljada (npr. 150000)
 - opis: kratki opis usluge ili robe
 
 Ako u dokumentu ima više faktura, vrati sve kao niz.`;
