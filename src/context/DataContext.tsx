@@ -3,6 +3,7 @@ import type { Firma, Klijent, Faktura, Uplata } from '../types';
 import { SheetsApi } from '../services/sheetsApi';
 import { useAuth } from './AuthContext';
 import { genId, danas } from '../utils/format';
+import type { ImportRow } from '../utils/importParse';
 
 interface DataContextValue {
   loading: boolean;
@@ -21,6 +22,8 @@ interface DataContextValue {
 
   addUplata: (u: Omit<Uplata, 'id' | 'kreirana'>) => Promise<void>;
   deleteUplata: (id: string) => Promise<void>;
+
+  batchImportFakture: (rows: ImportRow[]) => Promise<{ imported: number; skipped: string[] }>;
 
   // Pure helpers (derived from in-memory data)
   getUplateZaFakturu: (fakturaId: string) => Uplata[];
@@ -135,6 +138,56 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     await api().saveUplate(next);
   }, [uplate]);
 
+  // ── Batch import ──────────────────────────────────────────────────────────
+
+  const batchImportFakture = useCallback(async (rows: ImportRow[]) => {
+    const addDays = (dateStr: string, days: number) => {
+      const d = new Date(dateStr);
+      d.setDate(d.getDate() + days);
+      return d.toISOString().split('T')[0];
+    };
+
+    const nextKlijenti = [...klijenti];
+    const nextFakture = [...fakture];
+    const skipped: string[] = [];
+    let imported = 0;
+
+    for (const row of rows) {
+      const firma = firme.find(f => f.naziv.toLowerCase() === row.firma.toLowerCase());
+      if (!firma) {
+        skipped.push(`${row.broj_fakture}: firma "${row.firma}" nije pronađena`);
+        continue;
+      }
+
+      let klijent = nextKlijenti.find(k => k.naziv.toLowerCase() === row.klijent.toLowerCase());
+      if (!klijent) {
+        klijent = { id: genId(), naziv: row.klijent, adresa: '', pib: '', mb: '', email: '', telefon: '', kreiran: danas() };
+        nextKlijenti.push(klijent);
+      }
+
+      const datumDospeca = (() => { try { return addDays(row.datum, 30); } catch { return row.datum; } })();
+      const f: Faktura = {
+        id: genId(),
+        firmaId: firma.id,
+        klijentId: klijent.id,
+        broj: row.broj_fakture,
+        datum: row.datum,
+        datumDospeca,
+        stavke: [{ id: genId(), opis: row.opis || 'Usluga', kolicina: 1, cenaPoJedinici: row.iznos, ukupno: row.iznos }],
+        ukupanIznos: row.iznos,
+        napomena: '',
+        kreirana: danas(),
+      };
+      nextFakture.push(f);
+      imported++;
+    }
+
+    setKlijenti(nextKlijenti);
+    setFakture(nextFakture);
+    await Promise.all([api().saveKlijenti(nextKlijenti), api().saveFakture(nextFakture)]);
+    return { imported, skipped };
+  }, [klijenti, fakture, firme]);
+
   // ── Pure helpers ───────────────────────────────────────────────────────────
 
   const getUplateZaFakturu = useCallback((fakturaId: string) =>
@@ -152,6 +205,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       addKlijent, updateKlijent, deleteKlijent,
       addFaktura, deleteFaktura,
       addUplata, deleteUplata,
+      batchImportFakture,
       getUplateZaFakturu, getPlacenoZaFakturu, getFaktureZaKlijenta,
     }}>
       {children}
