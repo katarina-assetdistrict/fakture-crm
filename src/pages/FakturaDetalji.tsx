@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Plus, Trash2, X, Check, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, X, Check, AlertCircle, CheckCircle2, Building2 } from 'lucide-react';
 import {
-  getFakture, getKlijenti, getUplateZaFakturu, getPlacenoZaFakturu,
+  getFakture, getKlijenti, getFirme, getUplateZaFakturu, getPlacenoZaFakturu,
   addUplata, deleteUplata, deleteFaktura,
 } from '../utils/storage';
 import { formatRSD, formatDatum, genId, danas } from '../utils/format';
@@ -23,6 +23,7 @@ export default function FakturaDetalji() {
   if (!faktura) return <div className="p-8 text-gray-500">Faktura nije pronađena.</div>;
 
   const klijent = getKlijenti().find(k => k.id === faktura.klijentId);
+  const firma = getFirme().find(f => f.id === faktura.firmaId);
   const uplate = getUplateZaFakturu(id!).sort((a, b) => b.datum.localeCompare(a.datum));
   const placeno = getPlacenoZaFakturu(id!);
   const dug = Math.max(0, faktura.ukupanIznos - placeno);
@@ -33,7 +34,15 @@ export default function FakturaDetalji() {
     const iznos = Number(novaUplata.iznos);
     if (!iznos || iznos <= 0) { setGreska('Unesite ispravan iznos.'); return; }
     if (iznos > dug + 0.01) { setGreska(`Iznos ne može biti veći od duga (${formatRSD(dug)}).`); return; }
-    addUplata({ id: genId(), fakturaId: id!, iznos, datum: novaUplata.datum, napomena: novaUplata.napomena, kreirana: danas() });
+    addUplata({
+      id: genId(),
+      fakturaId: id!,
+      firmaId: faktura.firmaId,
+      iznos,
+      datum: novaUplata.datum,
+      napomena: novaUplata.napomena,
+      kreirana: danas(),
+    });
     setNovaUplata({ iznos: '', datum: danas(), napomena: '' });
     setGreska('');
     setModalUplata(false);
@@ -65,11 +74,18 @@ export default function FakturaDetalji() {
             }
             <h1 className="text-2xl font-bold text-gray-900">{faktura.broj}</h1>
           </div>
-          {klijent && (
-            <Link to={`/klijenti/${klijent.id}`} className="text-blue-600 hover:underline text-sm">
-              {klijent.naziv}
-            </Link>
-          )}
+          <div className="flex items-center gap-3 mt-1">
+            {firma && (
+              <span className="flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs font-medium">
+                <Building2 size={11} /> {firma.naziv}
+              </span>
+            )}
+            {klijent && (
+              <Link to={`/klijenti/${klijent.id}`} className="text-blue-600 hover:underline text-sm">
+                {klijent.naziv}
+              </Link>
+            )}
+          </div>
         </div>
         <button onClick={() => setBrisanjeFaktura(true)}
           className="flex items-center gap-1.5 text-red-500 hover:text-red-700 text-sm border border-red-200 hover:border-red-400 px-3 py-1.5 rounded-lg transition-colors">
@@ -78,19 +94,27 @@ export default function FakturaDetalji() {
       </div>
 
       <div className="grid grid-cols-5 gap-4 mb-6">
-        {/* Leva kolona: info */}
+        {/* Leva kolona */}
         <div className="col-span-3 space-y-4">
-          {/* Meta */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h2 className="font-semibold text-gray-800 mb-3 text-sm">Detalji fakture</h2>
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div><span className="text-gray-400">Datum:</span> <span className="text-gray-800 ml-1">{formatDatum(faktura.datum)}</span></div>
-              <div><span className="text-gray-400">Dospeće:</span> <span className={`ml-1 ${prosloRok ? 'text-red-600 font-medium' : 'text-gray-800'}`}>{formatDatum(faktura.datumDospeca)}{prosloRok && ' ⚠'}</span></div>
-              {faktura.napomena && <div className="col-span-2"><span className="text-gray-400">Napomena:</span> <span className="text-gray-800 ml-1">{faktura.napomena}</span></div>}
+              <div><span className="text-gray-400">Datum:</span><span className="text-gray-800 ml-1">{formatDatum(faktura.datum)}</span></div>
+              <div>
+                <span className="text-gray-400">Dospeće:</span>
+                <span className={`ml-1 ${prosloRok ? 'text-red-600 font-medium' : 'text-gray-800'}`}>
+                  {formatDatum(faktura.datumDospeca)}{prosloRok && ' ⚠'}
+                </span>
+              </div>
+              {faktura.napomena && (
+                <div className="col-span-2">
+                  <span className="text-gray-400">Napomena:</span>
+                  <span className="text-gray-800 ml-1">{faktura.napomena}</span>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Stavke */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-5 py-3 border-b border-gray-100">
               <h2 className="font-semibold text-gray-800 text-sm">Stavke</h2>
@@ -124,9 +148,8 @@ export default function FakturaDetalji() {
           </div>
         </div>
 
-        {/* Desna kolona: plaćanje */}
+        {/* Desna kolona */}
         <div className="col-span-2 space-y-4">
-          {/* Stanje plaćanja */}
           <div className={`rounded-xl border p-5 ${dug === 0 ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
             <h2 className="font-semibold text-gray-800 text-sm mb-3">Stanje plaćanja</h2>
             <div className="space-y-2 text-sm mb-3">
@@ -134,7 +157,6 @@ export default function FakturaDetalji() {
               <div className="flex justify-between"><span className="text-green-600">Plaćeno:</span><span className="text-green-700 font-medium">{formatRSD(placeno)}</span></div>
               <div className="flex justify-between border-t border-gray-100 pt-2"><span className="text-red-600 font-semibold">Dug:</span><span className="text-red-700 font-bold">{formatRSD(dug)}</span></div>
             </div>
-            {/* Progress bar */}
             <div className="w-full bg-gray-200 rounded-full h-2 mb-3">
               <div className="bg-green-500 h-2 rounded-full transition-all" style={{ width: `${procenat}%` }} />
             </div>
@@ -149,7 +171,6 @@ export default function FakturaDetalji() {
             )}
           </div>
 
-          {/* Uplate */}
           {uplate.length > 0 && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-100">
@@ -178,6 +199,12 @@ export default function FakturaDetalji() {
       {modalUplata && (
         <Modal title="Nova uplata" onClose={() => { setModalUplata(false); setGreska(''); }}>
           {greska && <div className="mb-3 text-sm text-red-600 bg-red-50 px-3 py-2 rounded">{greska}</div>}
+          {firma && (
+            <div className="mb-4 flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-lg">
+              <Building2 size={13} className="text-slate-500" />
+              <span className="text-sm text-slate-600 font-medium">{firma.naziv}</span>
+            </div>
+          )}
           <div className="space-y-4">
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Iznos (RSD) *</label>
@@ -203,13 +230,12 @@ export default function FakturaDetalji() {
           <div className="flex justify-end gap-2 mt-5">
             <button onClick={() => { setModalUplata(false); setGreska(''); }} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Otkaži</button>
             <button onClick={sacuvajUplatu} className="flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-              <Check size={14} /> Evidentiran uplatu
+              <Check size={14} /> Evidentiraj uplatu
             </button>
           </div>
         </Modal>
       )}
 
-      {/* Modal: Potvrda brisanja uplate */}
       {brisanjeUplataId && (
         <Modal title="Izbriši uplatu" onClose={() => setBrisanjeUplataId(null)}>
           <p className="text-sm text-gray-600">Da li ste sigurni da želite da izbrišete ovu uplatu?</p>
@@ -220,7 +246,6 @@ export default function FakturaDetalji() {
         </Modal>
       )}
 
-      {/* Modal: Potvrda brisanja fakture */}
       {brisanjeFaktura && (
         <Modal title="Izbriši fakturu" onClose={() => setBrisanjeFaktura(false)}>
           <p className="text-sm text-gray-600">Brisanjem fakture brišu se i sve evidentirane uplate. Ovo se ne može poništiti.</p>

@@ -1,3 +1,9 @@
+export interface Firma {
+  id: string;
+  naziv: string;
+  kreirana: string;
+}
+
 export interface Klijent {
   id: string;
   naziv: string;
@@ -19,6 +25,7 @@ export interface StavkaFakture {
 
 export interface Faktura {
   id: string;
+  firmaId: string;
   klijentId: string;
   broj: string;
   datum: string;
@@ -32,6 +39,7 @@ export interface Faktura {
 export interface Uplata {
   id: string;
   fakturaId: string;
+  firmaId: string;
   iznos: number;
   datum: string;
   napomena: string;

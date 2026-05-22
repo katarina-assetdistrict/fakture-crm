@@ -1,10 +1,16 @@
-import type { Klijent, Faktura, Uplata } from '../types';
+import type { Firma, Klijent, Faktura, Uplata } from '../types';
 
 const KLJUCEVI = {
+  firme: 'crm_firme',
   klijenti: 'crm_klijenti',
   fakture: 'crm_fakture',
   uplate: 'crm_uplate',
 };
+
+const DEFAULT_FIRME: Firma[] = [
+  { id: 'firma-best-app', naziv: 'Best App d.o.o.', kreirana: '2024-01-01' },
+  { id: 'firma-best-digital', naziv: 'Best Digital', kreirana: '2024-01-01' },
+];
 
 function ucitaj<T>(kljuc: string): T[] {
   try {
@@ -19,6 +25,32 @@ function sacuvaj<T>(kljuc: string, data: T[]): void {
   localStorage.setItem(kljuc, JSON.stringify(data));
 }
 
+// Firme
+export const getFirme = (): Firma[] => {
+  const firme = ucitaj<Firma>(KLJUCEVI.firme);
+  if (firme.length === 0) {
+    sacuvaj(KLJUCEVI.firme, DEFAULT_FIRME);
+    return DEFAULT_FIRME;
+  }
+  return firme;
+};
+
+export const saveFirme = (f: Firma[]) => sacuvaj(KLJUCEVI.firme, f);
+
+export const addFirma = (f: Firma) => {
+  const lista = getFirme();
+  lista.push(f);
+  saveFirme(lista);
+};
+
+export const updateFirma = (f: Firma) => {
+  saveFirme(getFirme().map(x => x.id === f.id ? f : x));
+};
+
+export const deleteFirma = (id: string) => {
+  saveFirme(getFirme().filter(x => x.id !== id));
+};
+
 // Klijenti
 export const getKlijenti = (): Klijent[] => ucitaj<Klijent>(KLJUCEVI.klijenti);
 export const saveKlijenti = (k: Klijent[]) => sacuvaj(KLJUCEVI.klijenti, k);
@@ -30,8 +62,7 @@ export const addKlijent = (k: Klijent) => {
 };
 
 export const updateKlijent = (k: Klijent) => {
-  const lista = getKlijenti().map(x => x.id === k.id ? k : x);
-  saveKlijenti(lista);
+  saveKlijenti(getKlijenti().map(x => x.id === k.id ? k : x));
 };
 
 export const deleteKlijent = (id: string) => {
@@ -82,8 +113,10 @@ export const deleteUplata = (id: string) => {
 export const getUplateZaFakturu = (fakturaId: string): Uplata[] =>
   getUplate().filter(u => u.fakturaId === fakturaId);
 
-export const getFaktureZaKlijenta = (klijentId: string): Faktura[] =>
-  getFakture().filter(f => f.klijentId === klijentId);
+export const getFaktureZaKlijenta = (klijentId: string, firmaId?: string): Faktura[] =>
+  getFakture().filter(f =>
+    f.klijentId === klijentId && (firmaId ? f.firmaId === firmaId : true)
+  );
 
 export const getPlacenoZaFakturu = (fakturaId: string): number =>
   getUplateZaFakturu(fakturaId).reduce((s, u) => s + u.iznos, 0);

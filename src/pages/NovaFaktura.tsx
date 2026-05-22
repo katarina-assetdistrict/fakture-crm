@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2, Check } from 'lucide-react';
-import { getKlijenti, addFaktura } from '../utils/storage';
+import { getKlijenti, addFaktura, getFirme } from '../utils/storage';
 import { genId, danas, formatRSD } from '../utils/format';
+import { useFirma } from '../context/FirmaContext';
 import type { StavkaFakture } from '../types';
 
 const praznaStavka = (): StavkaFakture => ({
@@ -12,8 +13,11 @@ const praznaStavka = (): StavkaFakture => ({
 export default function NovaFaktura() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  const { selectedFirmaId } = useFirma();
   const klijenti = getKlijenti();
+  const firme = getFirme();
 
+  const [firmaId, setFirmaId] = useState(selectedFirmaId ?? firme[0]?.id ?? '');
   const [klijentId, setKlijentId] = useState(params.get('klijentId') || '');
   const [broj, setBroj] = useState('');
   const [datum, setDatum] = useState(danas());
@@ -36,11 +40,13 @@ export default function NovaFaktura() {
   const ukupnoIznos = stavke.reduce((s, st) => s + st.ukupno, 0);
 
   const sacuvaj = () => {
+    if (!firmaId) { setGreska('Izaberite firmu.'); return; }
     if (!klijentId) { setGreska('Izaberite klijenta.'); return; }
     if (!broj.trim()) { setGreska('Unesite broj fakture.'); return; }
     if (stavke.some(s => !s.opis.trim())) { setGreska('Sve stavke moraju imati opis.'); return; }
     addFaktura({
       id: genId(),
+      firmaId,
       klijentId,
       broj: broj.trim(),
       datum,
@@ -65,9 +71,22 @@ export default function NovaFaktura() {
       )}
 
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
-        {/* Klijent i meta */}
         <div className="grid grid-cols-2 gap-4">
-          <div className="col-span-2">
+          {/* Firma */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Firma *</label>
+            <select
+              value={firmaId}
+              onChange={e => setFirmaId(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">— Izaberite firmu —</option>
+              {firme.map(f => <option key={f.id} value={f.id}>{f.naziv}</option>)}
+            </select>
+          </div>
+
+          {/* Klijent */}
+          <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Klijent *</label>
             <select
               value={klijentId}
@@ -78,6 +97,7 @@ export default function NovaFaktura() {
               {klijenti.map(k => <option key={k.id} value={k.id}>{k.naziv}</option>)}
             </select>
           </div>
+
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Broj fakture *</label>
             <input value={broj} onChange={e => setBroj(e.target.value)} placeholder="npr. 2024/001"
@@ -125,11 +145,13 @@ export default function NovaFaktura() {
                         className="w-full border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400" />
                     </td>
                     <td className="px-2 py-1.5">
-                      <input type="number" min="0" value={s.kolicina} onChange={e => updateStavka(s.id, 'kolicina', Number(e.target.value))}
+                      <input type="number" min="0" value={s.kolicina}
+                        onChange={e => updateStavka(s.id, 'kolicina', Number(e.target.value))}
                         className="w-full border border-gray-200 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-blue-400" />
                     </td>
                     <td className="px-2 py-1.5">
-                      <input type="number" min="0" value={s.cenaPoJedinici} onChange={e => updateStavka(s.id, 'cenaPoJedinici', Number(e.target.value))}
+                      <input type="number" min="0" value={s.cenaPoJedinici}
+                        onChange={e => updateStavka(s.id, 'cenaPoJedinici', Number(e.target.value))}
                         className="w-full border border-gray-200 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-blue-400" />
                     </td>
                     <td className="px-3 py-1.5 text-right font-medium text-gray-900">{formatRSD(s.ukupno)}</td>
@@ -161,7 +183,6 @@ export default function NovaFaktura() {
           </button>
         </div>
 
-        {/* Akcije */}
         <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
           <button onClick={() => navigate(-1)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
             Otkaži

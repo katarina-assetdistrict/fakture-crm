@@ -1,20 +1,29 @@
 import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, CheckCircle2, AlertCircle, ChevronRight } from 'lucide-react';
-import { getKlijenti, getFaktureZaKlijenta, getPlacenoZaFakturu, getUplateZaFakturu } from '../utils/storage';
+import { ArrowLeft, Plus, CheckCircle2, AlertCircle, ChevronRight, Building2 } from 'lucide-react';
+import { getKlijenti, getFaktureZaKlijenta, getPlacenoZaFakturu, getUplateZaFakturu, getFirme } from '../utils/storage';
 import { formatRSD, formatDatum } from '../utils/format';
+import { useFirma } from '../context/FirmaContext';
 
 export default function KlijentDetalji() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { selectedFirmaId } = useFirma();
   const [godina, setGodina] = useState<number | undefined>(undefined);
+  const [firmaFilter, setFirmaFilter] = useState(selectedFirmaId ?? '');
 
   const klijent = getKlijenti().find(k => k.id === id);
   if (!klijent) return <div className="p-8 text-gray-500">Klijent nije pronađen.</div>;
 
+  const firme = getFirme();
   const sveFakture = getFaktureZaKlijenta(id!);
   const godine = Array.from(new Set(sveFakture.map(f => new Date(f.datum).getFullYear()))).sort((a, b) => b - a);
-  const fakture = godina ? sveFakture.filter(f => new Date(f.datum).getFullYear() === godina) : sveFakture;
+
+  const fakture = sveFakture.filter(f => {
+    const matchFirma = !firmaFilter || f.firmaId === firmaFilter;
+    const matchGodina = !godina || new Date(f.datum).getFullYear() === godina;
+    return matchFirma && matchGodina;
+  });
 
   const ukupnoFakturisano = fakture.reduce((s, f) => s + f.ukupanIznos, 0);
   const ukupnoPlaceno = fakture.reduce((s, f) => s + getPlacenoZaFakturu(f.id), 0);
@@ -22,7 +31,6 @@ export default function KlijentDetalji() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
-      {/* Header */}
       <button onClick={() => navigate(-1)} className="flex items-center gap-1.5 text-gray-500 hover:text-gray-700 text-sm mb-5">
         <ArrowLeft size={15} /> Nazad
       </button>
@@ -69,22 +77,33 @@ export default function KlijentDetalji() {
 
       {/* Fakture */}
       <div className="bg-white rounded-xl border border-gray-200">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-900">Fakture ({fakture.length})</h2>
-          <select
-            value={godina ?? ''}
-            onChange={e => setGodina(e.target.value ? Number(e.target.value) : undefined)}
-            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">Sve godine</option>
-            {godine.map(g => <option key={g} value={g}>{g}</option>)}
-          </select>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 gap-3">
+          <h2 className="font-semibold text-gray-900 flex-shrink-0">Fakture ({fakture.length})</h2>
+          <div className="flex gap-2 ml-auto">
+            <select
+              value={firmaFilter}
+              onChange={e => setFirmaFilter(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Sve firme</option>
+              {firme.map(f => <option key={f.id} value={f.id}>{f.naziv}</option>)}
+            </select>
+            <select
+              value={godina ?? ''}
+              onChange={e => setGodina(e.target.value ? Number(e.target.value) : undefined)}
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Sve godine</option>
+              {godine.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+          </div>
         </div>
         {fakture.length === 0 ? (
-          <div className="py-12 text-center text-gray-400 text-sm">Nema faktura za ovog klijenta.</div>
+          <div className="py-12 text-center text-gray-400 text-sm">Nema faktura za odabrane filtere.</div>
         ) : (
           <div className="divide-y divide-gray-50">
             {fakture.sort((a, b) => b.datum.localeCompare(a.datum)).map(f => {
+              const firma = firme.find(fi => fi.id === f.firmaId);
               const placeno = getPlacenoZaFakturu(f.id);
               const dug = Math.max(0, f.ukupanIznos - placeno);
               const uplate = getUplateZaFakturu(f.id);
@@ -101,7 +120,14 @@ export default function KlijentDetalji() {
                     }
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-gray-900">{f.broj}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-900">{f.broj}</span>
+                      {firma && (
+                        <span className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-xs">
+                          <Building2 size={10} /> {firma.naziv}
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs text-gray-400 mt-0.5">
                       {formatDatum(f.datum)} · Dospeće: {formatDatum(f.datumDospeca)}
                       {uplate.length > 0 && ` · ${uplate.length} uplata`}

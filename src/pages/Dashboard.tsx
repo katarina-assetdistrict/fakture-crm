@@ -1,22 +1,29 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { TrendingDown, CheckCircle2, Clock, Download, ChevronRight } from 'lucide-react';
-import { getKlijenti, getFakture, getUplate, getPlacenoZaFakturu } from '../utils/storage';
+import { getKlijenti, getFakture, getUplate, getPlacenoZaFakturu, getFirme } from '../utils/storage';
 import { formatRSD, godineFaktura } from '../utils/format';
 import { exportFaktureExcel } from '../utils/export';
+import { useFirma } from '../context/FirmaContext';
 import type { StanjeKlijenta } from '../types';
 
 export default function Dashboard() {
+  const { selectedFirmaId } = useFirma();
   const [godina, setGodina] = useState<number | undefined>(undefined);
 
   const klijenti = getKlijenti();
   const sveFakture = getFakture();
   const sveUplate = getUplate();
+  const firme = getFirme();
   const godine = godineFaktura(sveFakture);
 
   const fakture = useMemo(
-    () => godina ? sveFakture.filter(f => new Date(f.datum).getFullYear() === godina) : sveFakture,
-    [godina, sveFakture.length]
+    () => sveFakture.filter(f => {
+      const matchFirma = !selectedFirmaId || f.firmaId === selectedFirmaId;
+      const matchGodina = !godina || new Date(f.datum).getFullYear() === godina;
+      return matchFirma && matchGodina;
+    }),
+    [selectedFirmaId, godina, sveFakture.length]
   );
 
   const stanja: StanjeKlijenta[] = useMemo(() => {
@@ -25,10 +32,7 @@ export default function Dashboard() {
       const ukupnoFakturisano = kFakture.reduce((s, f) => s + f.ukupanIznos, 0);
       const ukupnoPlaceno = kFakture.reduce((s, f) => s + getPlacenoZaFakturu(f.id), 0);
       const dug = Math.max(0, ukupnoFakturisano - ukupnoPlaceno);
-      const faktureSaDugom = kFakture.filter(f => {
-        const pl = getPlacenoZaFakturu(f.id);
-        return pl < f.ukupanIznos;
-      }).length;
+      const faktureSaDugom = kFakture.filter(f => getPlacenoZaFakturu(f.id) < f.ukupanIznos).length;
       return { klijent: k, ukupnoFakturisano, ukupnoPlaceno, dug, brojFaktura: kFakture.length, faktureSaDugom };
     }).filter(s => s.brojFaktura > 0).sort((a, b) => b.dug - a.dug);
   }, [fakture, klijenti.length, sveUplate.length]);
@@ -37,7 +41,11 @@ export default function Dashboard() {
   const ukupnoPlaceno = stanja.reduce((s, x) => s + x.ukupnoPlaceno, 0);
   const ukupnoDug = stanja.reduce((s, x) => s + x.dug, 0);
 
-  const handleExport = () => exportFaktureExcel(sveFakture, klijenti, sveUplate, godina);
+  const handleExport = () => exportFaktureExcel(sveFakture, klijenti, firme, sveUplate, selectedFirmaId, godina);
+
+  const naslovFirme = selectedFirmaId
+    ? firme.find(f => f.id === selectedFirmaId)?.naziv
+    : 'Sve firme';
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -45,7 +53,7 @@ export default function Dashboard() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Pregled dugovanja i naplate</p>
+          <p className="text-gray-500 text-sm mt-0.5">{naslovFirme}</p>
         </div>
         <div className="flex items-center gap-3">
           <select
@@ -86,7 +94,7 @@ export default function Dashboard() {
             {ukupnoFakturisano > 0 ? Math.round((ukupnoPlaceno / ukupnoFakturisano) * 100) : 0}% od fakturisanog
           </div>
         </div>
-        <div className="bg-white rounded-xl border border-red-100 p-5 bg-red-50">
+        <div className="bg-red-50 rounded-xl border border-red-100 p-5">
           <div className="flex items-center gap-2 text-red-600 text-sm mb-1">
             <TrendingDown size={15} />
             Ukupan dug
@@ -105,7 +113,7 @@ export default function Dashboard() {
         </div>
         {stanja.length === 0 ? (
           <div className="py-16 text-center text-gray-400">
-            <FileTextIcon />
+            <EmptyIcon />
             <p className="mt-2 text-sm">Nema podataka za prikaz.</p>
             <Link to="/klijenti" className="mt-3 inline-block text-blue-600 text-sm hover:underline">
               Dodajte prvog klijenta →
@@ -159,16 +167,14 @@ export default function Dashboard() {
 }
 
 function StatusBadge({ dug, placeno, fakturisano }: { dug: number; placeno: number; fakturisano: number }) {
-  if (dug === 0 && fakturisano > 0) {
+  if (dug === 0 && fakturisano > 0)
     return <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">Izmireno</span>;
-  }
-  if (placeno > 0 && dug > 0) {
+  if (placeno > 0 && dug > 0)
     return <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">Delimično</span>;
-  }
   return <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">Nije plaćeno</span>;
 }
 
-function FileTextIcon() {
+function EmptyIcon() {
   return (
     <svg className="mx-auto text-gray-300" width="40" height="40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />

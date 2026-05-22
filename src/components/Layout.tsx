@@ -1,5 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Users, FileText, Receipt } from 'lucide-react';
+import { LayoutDashboard, Users, FileText, Receipt, Building2 } from 'lucide-react';
+import { useFirma } from '../context/FirmaContext';
+import { getFirme } from '../utils/storage';
 
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -8,6 +10,9 @@ const nav = [
 ];
 
 export default function Layout() {
+  const { selectedFirmaId, setSelectedFirmaId } = useFirma();
+  const firme = getFirme();
+
   return (
     <div className="min-h-screen bg-gray-50 flex">
       <aside className="w-56 bg-slate-800 text-white flex flex-col">
@@ -18,6 +23,25 @@ export default function Layout() {
           </div>
           <p className="text-slate-400 text-xs mt-0.5">Upravljanje fakturama</p>
         </div>
+
+        {/* Firma selector */}
+        <div className="px-3 py-3 border-b border-slate-700">
+          <div className="flex items-center gap-1.5 text-slate-400 text-xs mb-1.5 px-1">
+            <Building2 size={11} />
+            <span>Firma</span>
+          </div>
+          <select
+            value={selectedFirmaId ?? ''}
+            onChange={e => setSelectedFirmaId(e.target.value || undefined)}
+            className="w-full bg-slate-700 text-white text-sm rounded-lg px-2.5 py-2 border border-slate-600 focus:outline-none focus:border-blue-500 cursor-pointer"
+          >
+            <option value="">Sve firme</option>
+            {firme.map(f => (
+              <option key={f.id} value={f.id}>{f.naziv}</option>
+            ))}
+          </select>
+        </div>
+
         <nav className="flex-1 py-4 px-2 space-y-1">
           {nav.map(({ to, label, icon: Icon }) => (
             <NavLink
@@ -37,6 +61,21 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
+
+        {selectedFirmaId && (
+          <div className="px-3 py-2 mx-2 mb-2 bg-blue-900/40 rounded-lg border border-blue-700/30">
+            <div className="text-xs text-blue-300 font-medium truncate">
+              {firme.find(f => f.id === selectedFirmaId)?.naziv}
+            </div>
+            <button
+              onClick={() => setSelectedFirmaId(undefined)}
+              className="text-xs text-blue-400 hover:text-white mt-0.5"
+            >
+              Prikaži sve firme
+            </button>
+          </div>
+        )}
+
         <div className="px-4 py-3 border-t border-slate-700 text-slate-500 text-xs">
           Sva dugovanja u RSD
         </div>
