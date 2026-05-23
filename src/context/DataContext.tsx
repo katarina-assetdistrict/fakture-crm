@@ -1,6 +1,11 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { Firma, Klijent, Faktura, Uplata, Izvod } from '../types';
-import { SheetsApi } from '../services/sheetsApi';
+import {
+  subscribeFirme, subscribeKlijenti, subscribeFakture, subscribeUplate, subscribeIzvodi,
+  upsertKlijent, upsertFaktura, upsertUplata, upsertIzvod,
+  deleteKlijentDoc, deleteFakturaDoc, deleteUplataDoc,
+  batchDelete, batchUpsert, seedFirme,
+} from '../services/firestoreApi';
 import { useAuth } from './AuthContext';
 import { genId, danas } from '../utils/format';
 import type { ImportRow } from '../utils/importParse';
@@ -30,7 +35,6 @@ interface DataContextValue {
 
   batchImportFakture: (rows: ImportRow[]) => Promise<{ imported: number; skipped: string[] }>;
 
-  // Pure helpers (derived from in-memory data)
   getUplateZaFakturu: (fakturaId: string) => Uplata[];
   getPlacenoZaFakturu: (fakturaId: string) => number;
   getFaktureZaKlijenta: (klijentId: string, firmaId?: string) => Faktura[];
@@ -40,127 +44,146 @@ const DataContext = createContext<DataContextValue>({} as DataContextValue);
 export const useData = () => useContext(DataContext);
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
-  const { token, spreadsheetId, setSpreadsheetId, isAuthenticated } = useAuth();
-  const [loading, setLoading] = useState(false);
+  const { uid } = useAuth();
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [firme, setFirme] = useState<Firma[]>([]);
   const [klijenti, setKlijenti] = useState<Klijent[]>([]);
   const [fakture, setFakture] = useState<Faktura[]>([]);
   const [uplate, setUplate] = useState<Uplata[]>([]);
   const [izvodi, setIzvodi] = useState<Izvod[]>([]);
-  const apiRef = useRef<SheetsApi | null>(null);
 
-  // Initialize: on login, create or load spreadsheet
+  // Track how many collections have received their first snapshot
+  const [loaded, setLoaded] = useState(0);
+  const TOTAL_COLLECTIONS = 5;
+
   useEffect(() => {
-    if (!isAuthenticated || !token) return;
+    if (!uid) return;
 
-    const init = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        let sheetId = spreadsheetId;
+    setLoading(true);
+    setError(null);
+    setLoaded(0);
 
-        if (!sheetId) {
-          sheetId = await SheetsApi.createNew(token);
-          setSpreadsheetId(sheetId);
-        }
+    const onFirst = () => setLoaded(n => n + 1);
 
-        const api = new SheetsApi(token, sheetId);
-        apiRef.current = api;
-
-        const data = await api.loadAll();
-        setFirme(data.firme);
-        setKlijenti(data.klijenti);
-        setFakture(data.fakture);
-        setUplate(data.uplate);
-        setIzvodi(data.izvodi);
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : 'Greška pri učitavanju podataka';
-        setError(msg);
-      } finally {
-        setLoading(false);
+    let firmeFirst = true;
+    const unsubFirme = subscribeFirme(uid, (data) => {
+      // Seed default firme for brand-new users
+      if (firmeFirst && data.length === 0) {
+        seedFirme(uid).catch(e => setError(String(e)));
       }
+      firmeFirst = false;
+      setFirme(data);
+      onFirst();
+    });
+
+    let klijentiFirst = true;
+    const unsubKlijenti = subscribeKlijenti(uid, (data) => {
+      if (klijentiFirst) { klijentiFirst = false; onFirst(); }
+      setKlijenti(data);
+    });
+
+    let faktureFirst = true;
+    const unsubFakture = subscribeFakture(uid, (data) => {
+      if (faktureFirst) { faktureFirst = false; onFirst(); }
+      setFakture(data);
+    });
+
+    let uplateFirst = true;
+    const unsubUplate = subscribeUplate(uid, (data) => {
+      if (uplateFirst) { uplateFirst = false; onFirst(); }
+      setUplate(data);
+    });
+
+    let izvodiFirst = true;
+    const unsubIzvodi = subscribeIzvodi(uid, (data) => {
+      if (izvodiFirst) { izvodiFirst = false; onFirst(); }
+      setIzvodi(data);
+    });
+
+    return () => {
+      unsubFirme(); unsubKlijenti(); unsubFakture(); unsubUplate(); unsubIzvodi();
     };
+  }, [uid]);
 
-    init();
-  }, [isAuthenticated, token]);
+  // Set loading=false once all collections have their first snapshot
+  useEffect(() => {
+    if (loaded >= TOTAL_COLLECTIONS) setLoading(false);
+  }, [loaded]);
 
-  const api = () => {
-    if (!apiRef.current) throw new Error('API nije inicijalizovan');
-    return apiRef.current;
+  const withError = async (fn: () => Promise<void>) => {
+    try {
+      await fn();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Greška pri snimanju podataka';
+      setError(`Greška: ${msg}`);
+      throw e;
+    }
   };
 
   // ── Klijenti ───────────────────────────────────────────────────────────────
 
   const addKlijent = useCallback(async (data: Omit<Klijent, 'id' | 'kreiran'>) => {
     const k: Klijent = { ...data, id: genId(), kreiran: danas() };
-    const next = [...klijenti, k];
-    setKlijenti(next);
-    await api().saveKlijenti(next);
-  }, [klijenti]);
+    await withError(() => upsertKlijent(uid!, k));
+  }, [uid]);
 
   const updateKlijent = useCallback(async (k: Klijent) => {
-    const next = klijenti.map(x => x.id === k.id ? k : x);
-    setKlijenti(next);
-    await api().saveKlijenti(next);
-  }, [klijenti]);
+    await withError(() => upsertKlijent(uid!, k));
+  }, [uid]);
 
   const deleteKlijent = useCallback(async (id: string) => {
-    const faktureToDelete = new Set(fakture.filter(f => f.klijentId === id).map(f => f.id));
-    const nextK = klijenti.filter(k => k.id !== id);
-    const nextF = fakture.filter(f => f.klijentId !== id);
-    const nextU = uplate.filter(u => !faktureToDelete.has(u.fakturaId));
-    setKlijenti(nextK); setFakture(nextF); setUplate(nextU);
-    await Promise.all([api().saveKlijenti(nextK), api().saveFakture(nextF), api().saveUplate(nextU)]);
-  }, [klijenti, fakture, uplate]);
+    const faktureToDelete = fakture.filter(f => f.klijentId === id).map(f => f.id);
+    const uplateToDelete = uplate.filter(u => faktureToDelete.includes(u.fakturaId)).map(u => u.id);
+    await withError(async () => {
+      await Promise.all([
+        deleteKlijentDoc(uid!, id),
+        batchDelete(uid!, 'fakture', faktureToDelete),
+        batchDelete(uid!, 'uplate', uplateToDelete),
+      ]);
+    });
+  }, [uid, fakture, uplate]);
 
   // ── Fakture ────────────────────────────────────────────────────────────────
 
   const addFaktura = useCallback(async (data: Omit<Faktura, 'id' | 'kreirana'>) => {
     const f: Faktura = { ...data, id: genId(), kreirana: danas() };
-    const next = [...fakture, f];
-    setFakture(next);
-    await api().saveFakture(next);
-  }, [fakture]);
+    await withError(() => upsertFaktura(uid!, f));
+  }, [uid]);
 
   const updateFaktura = useCallback(async (f: Faktura) => {
-    const next = fakture.map(x => x.id === f.id ? f : x);
-    setFakture(next);
-    await api().saveFakture(next);
-  }, [fakture]);
+    await withError(() => upsertFaktura(uid!, f));
+  }, [uid]);
 
   const deleteFaktura = useCallback(async (id: string) => {
-    const nextF = fakture.filter(f => f.id !== id);
-    const nextU = uplate.filter(u => u.fakturaId !== id);
-    setFakture(nextF); setUplate(nextU);
-    await Promise.all([api().saveFakture(nextF), api().saveUplate(nextU)]);
-  }, [fakture, uplate]);
+    const uplateToDelete = uplate.filter(u => u.fakturaId === id).map(u => u.id);
+    await withError(async () => {
+      await Promise.all([
+        deleteFakturaDoc(uid!, id),
+        batchDelete(uid!, 'uplate', uplateToDelete),
+      ]);
+    });
+  }, [uid, uplate]);
 
   // ── Uplate ─────────────────────────────────────────────────────────────────
 
   const addUplata = useCallback(async (data: Omit<Uplata, 'id' | 'kreirana'>) => {
     const u: Uplata = { ...data, id: genId(), kreirana: danas() };
-    const next = [...uplate, u];
-    setUplate(next);
-    await api().saveUplate(next);
-  }, [uplate]);
+    await withError(() => upsertUplata(uid!, u));
+  }, [uid]);
 
   const deleteUplata = useCallback(async (id: string) => {
-    const next = uplate.filter(u => u.id !== id);
-    setUplate(next);
-    await api().saveUplate(next);
-  }, [uplate]);
+    await withError(() => deleteUplataDoc(uid!, id));
+  }, [uid]);
 
   // ── Izvodi ─────────────────────────────────────────────────────────────────
 
   const addIzvod = useCallback(async (data: Omit<Izvod, 'id' | 'kreiran'>) => {
     const i: Izvod = { ...data, id: genId(), kreiran: danas() };
-    const next = [...izvodi, i];
-    setIzvodi(next);
-    await api().saveIzvodi(next);
-  }, [izvodi]);
+    await withError(() => upsertIzvod(uid!, i));
+  }, [uid]);
 
-  // ── Batch import ──────────────────────────────────────────────────────────
+  // ── Batch import ───────────────────────────────────────────────────────────
 
   const batchImportFakture = useCallback(async (rows: ImportRow[]) => {
     const addDays = (dateStr: string, days: number) => {
@@ -169,10 +192,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       return d.toISOString().split('T')[0];
     };
 
-    const nextKlijenti = [...klijenti];
-    const nextFakture = [...fakture];
+    const newKlijenti: Klijent[] = [];
+    const newFakture: Faktura[] = [];
     const skipped: string[] = [];
     let imported = 0;
+
+    const allKlijenti = [...klijenti];
 
     for (const row of rows) {
       const firma = firme.find(f => normalizeFirma(f.naziv) === normalizeFirma(row.firma));
@@ -181,10 +206,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         continue;
       }
 
-      let klijent = nextKlijenti.find(k => normalizeFirma(k.naziv) === normalizeFirma(row.klijent));
+      let klijent = allKlijenti.find(k => normalizeFirma(k.naziv) === normalizeFirma(row.klijent));
       if (!klijent) {
         klijent = { id: genId(), naziv: row.klijent, adresa: '', pib: '', mb: '', email: '', telefon: '', kreiran: danas() };
-        nextKlijenti.push(klijent);
+        allKlijenti.push(klijent);
+        newKlijenti.push(klijent);
       }
 
       const datumDospeca = (() => { try { return addDays(row.datum, 30); } catch { return row.datum; } })();
@@ -200,15 +226,19 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         napomena: '',
         kreirana: danas(),
       };
-      nextFakture.push(f);
+      newFakture.push(f);
       imported++;
     }
 
-    setKlijenti(nextKlijenti);
-    setFakture(nextFakture);
-    await Promise.all([api().saveKlijenti(nextKlijenti), api().saveFakture(nextFakture)]);
+    await withError(async () => {
+      await Promise.all([
+        batchUpsert(uid!, 'klijenti', newKlijenti),
+        batchUpsert(uid!, 'fakture', newFakture),
+      ]);
+    });
+
     return { imported, skipped };
-  }, [klijenti, fakture, firme]);
+  }, [uid, klijenti, fakture, firme]);
 
   // ── Pure helpers ───────────────────────────────────────────────────────────
 

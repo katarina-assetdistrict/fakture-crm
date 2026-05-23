@@ -3,26 +3,25 @@ import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
   const { login, isLoading } = useAuth();
-  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const configured = !!import.meta.env.VITE_FIREBASE_PROJECT_ID;
 
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8 text-center">
-        {/* Logo */}
         <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-5">
           <Receipt className="text-white" size={32} />
         </div>
         <h1 className="text-2xl font-bold text-gray-900 mb-1">FaktCRM</h1>
         <p className="text-gray-500 text-sm mb-8">Upravljanje fakturama i uplatama</p>
 
-        {!clientId ? (
+        {!configured ? (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-left">
             <div className="flex gap-2 items-start">
               <AlertCircle className="text-amber-600 flex-shrink-0 mt-0.5" size={16} />
               <div>
-                <p className="text-amber-800 text-sm font-medium">Nedostaje konfiguracija</p>
+                <p className="text-amber-800 text-sm font-medium">Nedostaje Firebase konfiguracija</p>
                 <p className="text-amber-700 text-xs mt-1">
-                  Dodajte <code className="bg-amber-100 px-1 rounded">VITE_GOOGLE_CLIENT_ID</code> u GitHub Secrets i ponovo deploujte.
+                  Dodajte <code className="bg-amber-100 px-1 rounded">VITE_FIREBASE_*</code> env varijable u GitHub Secrets i ponovo deploujte.
                 </p>
               </div>
             </div>
@@ -43,7 +42,7 @@ export default function Login() {
         )}
 
         <p className="text-xs text-gray-400 mt-6">
-          Podaci se čuvaju u vašem Google Drive-u.<br />
+          Podaci se čuvaju u Firebase Firestore.<br />
           Pristupačno sa bilo kog uređaja.
         </p>
       </div>

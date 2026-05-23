@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Users, FileText, Receipt, Building2, LogOut, RefreshCw, Banknote, Landmark } from 'lucide-react';
+import { LayoutDashboard, Users, FileText, Receipt, Building2, LogOut, Banknote, Landmark } from 'lucide-react';
 import { useFirma } from '../context/FirmaContext';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
@@ -14,7 +14,7 @@ const nav = [
 
 export default function Layout() {
   const { selectedFirmaId, setSelectedFirmaId } = useFirma();
-  const { user, logout, login, tokenExpired } = useAuth();
+  const { user, logout } = useAuth();
   const { firme, loading, error } = useData();
 
   return (
@@ -90,16 +90,6 @@ export default function Layout() {
       </aside>
 
       <main className="flex-1 overflow-auto flex flex-col">
-        {/* Token expired banner */}
-        {tokenExpired && (
-          <div className="bg-amber-500 text-white px-4 py-2 text-sm flex items-center justify-between">
-            <span>Sesija je istekla. Prijavite se ponovo.</span>
-            <button onClick={login} className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg text-xs font-medium">
-              <RefreshCw size={12} /> Ponovo prijavi
-            </button>
-          </div>
-        )}
-
         {/* Data error banner */}
         {error && (
           <div className="bg-red-500 text-white px-4 py-2 text-sm">
