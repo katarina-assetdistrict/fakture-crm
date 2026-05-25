@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Upload, X, Loader2, AlertTriangle, CheckCircle2, KeyRound, FileType2, Landmark } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useFirma } from '../context/FirmaContext';
@@ -11,10 +11,64 @@ const CLAUDE_KEY_STORAGE = 'claude_api_key';
 const getClaudeKey = () => localStorage.getItem(CLAUDE_KEY_STORAGE) ?? '';
 const saveClaudeKey = (k: string) => localStorage.setItem(CLAUDE_KEY_STORAGE, k);
 
+function getIzvodLabel(nazivFajla: string, datumIzvoda: string): string {
+  const base = (nazivFajla ?? '').split('/').pop() ?? '';
+  const bracketNum = base.match(/\[([^\]]+)\]\.pdf$/i);
+  if (bracketNum) return `Izvod ${bracketNum[1]}`;
+  if (/\.pdf$/i.test(base)) return base;
+  return datumIzvoda ? `izvod_${datumIzvoda.replace(/[-./\s]/g, '_')}.pdf` : 'izvod.pdf';
+}
+
 export default function Izvodi() {
   const { selectedFirmaId } = useFirma();
-  const { izvodi, firme } = useData();
+  const { izvodi, firme, addIzvod, fakture, klijenti, getPlacenoZaFakturu, addUplata } = useData();
+  const directFileRef = useRef<HTMLInputElement>(null);
   const [modal, setModal] = useState(false);
+  const [preloadFile, setPreloadFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; currentFileName: string } | null>(null);
+  const [uploadSummary, setUploadSummary] = useState<string | null>(null);
+
+  const handleBatchDirect = async (files: File[]) => {
+    const key = getClaudeKey();
+    let totalTransakcija = 0;
+    const openFakture = fakture.filter(f => f.ukupanIznos - getPlacenoZaFakturu(f.id) > 0.01);
+    for (let idx = 0; idx < files.length; idx++) {
+      const file = files[idx];
+      setUploadProgress({ current: idx + 1, total: files.length, currentFileName: file.name });
+      try {
+        const b64 = await fileToBase64(file);
+        const data = await extractIzvodData(key, b64);
+        const normedFirma = normalizeFirma(data.firma ?? '');
+        const matchedFirma = firme.find(f => normalizeFirma(f.naziv) === normedFirma);
+        for (const t of data.transakcije) {
+          let matched = '';
+          if (t.uplatioc) {
+            const upl = t.uplatioc.toLowerCase();
+            for (const f of openFakture) {
+              const k = klijenti.find(kl => kl.id === f.klijentId);
+              if (k && upl.includes(k.naziv.toLowerCase().split(' ')[0])) { matched = f.id; break; }
+            }
+          }
+          if (!matched) {
+            const byAmt = openFakture.find(f => Math.abs((f.ukupanIznos - getPlacenoZaFakturu(f.id)) - t.iznos) < 1);
+            if (byAmt) matched = byAmt.id;
+          }
+          if (matched) {
+            const faktura = fakture.find(f => f.id === matched);
+            if (faktura) {
+              await addUplata({ fakturaId: faktura.id, firmaId: faktura.firmaId, iznos: t.iznos, datum: t.datum, napomena: [t.uplatioc, t.svrha].filter(Boolean).join(' — ') });
+            }
+          }
+        }
+        const ukupnoPrilivno = data.transakcije.reduce((s, t) => s + t.iznos, 0);
+        await addIzvod({ firmaId: matchedFirma?.id ?? '', firmaIme: data.firma ?? '', datumIzvoda: data.datum_izvoda, nazivFajla: file.name, ukupnoPrilivno, brojTransakcija: data.transakcije.length });
+        totalTransakcija += data.transakcije.length;
+      } catch { /* skip failed file */ }
+    }
+    setUploadProgress(null);
+    setUploadSummary(`Uvezeno ${files.length} izvoda, pronađeno ${totalTransakcija} transakcija`);
+    setTimeout(() => setUploadSummary(null), 4000);
+  };
 
   const prikazaniIzvodi = [...izvodi]
     .filter(i => !selectedFirmaId || i.firmaId === selectedFirmaId)
@@ -32,12 +86,38 @@ export default function Izvodi() {
             {prikazaniIzvodi.length > 0 && ` · ukupno prilivno ${formatRSD(ukupnoPrilivno)}`}
           </p>
         </div>
-        <button
-          onClick={() => setModal(true)}
-          className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-        >
-          <Upload size={14} /> Uvezi izvod (PDF)
-        </button>
+        <div className="flex items-center gap-3">
+          {uploadSummary && (
+            <span className="text-sm text-green-600 font-medium">{uploadSummary}</span>
+          )}
+          {uploadProgress && (
+            <span className="text-sm text-purple-600 font-medium">
+              Obrađujem {uploadProgress.current}/{uploadProgress.total}: {uploadProgress.currentFileName.length > 28 ? uploadProgress.currentFileName.slice(0, 28) + '…' : uploadProgress.currentFileName}
+            </span>
+          )}
+          <button
+            onClick={() => directFileRef.current?.click()}
+            disabled={!!uploadProgress}
+            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            {uploadProgress ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+            Uvezi izvod (PDF)
+          </button>
+          <input
+            ref={directFileRef}
+            type="file"
+            accept=".pdf"
+            multiple
+            className="hidden"
+            onChange={e => {
+              const files = Array.from(e.target.files ?? []);
+              e.target.value = '';
+              if (files.length === 0) return;
+              if (files.length === 1) { setPreloadFile(files[0]); setModal(true); }
+              else handleBatchDirect(files);
+            }}
+          />
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200">
@@ -71,7 +151,7 @@ export default function Izvodi() {
                           {firma?.naziv || izvod.firmaIme || '—'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-400 text-xs font-mono truncate max-w-52">{izvod.nazivFajla}</td>
+                      <td className="px-4 py-3 text-gray-600 text-xs font-medium" title={izvod.nazivFajla}>{getIzvodLabel(izvod.nazivFajla, izvod.datumIzvoda)}</td>
                       <td className="px-4 py-3 text-right">
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${izvod.brojTransakcija > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                           {izvod.brojTransakcija}
@@ -97,7 +177,7 @@ export default function Izvodi() {
         )}
       </div>
 
-      {modal && <IzvodImportModal firme={firme} onClose={() => setModal(false)} />}
+      {modal && <IzvodImportModal firme={firme} onClose={() => { setModal(false); setPreloadFile(null); }} initialFile={preloadFile ?? undefined} />}
     </div>
   );
 }
@@ -113,12 +193,15 @@ type Step = 'pick' | 'processing' | 'preview' | 'result';
 function IzvodImportModal({
   firme,
   onClose,
+  initialFile,
 }: {
   firme: { id: string; naziv: string }[];
   onClose: () => void;
+  initialFile?: File;
 }) {
   const { fakture, klijenti, getPlacenoZaFakturu, addUplata, addIzvod } = useData();
   const fileRef = useRef<HTMLInputElement>(null);
+  const initialFileRef = useRef(initialFile);
 
   const [step, setStep] = useState<Step>('pick');
   const [fileName, setFileName] = useState('');
@@ -179,6 +262,10 @@ function IzvodImportModal({
       setStep('pick');
     }
   };
+
+  // Auto-process a file passed from the parent (single-file direct click flow)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (initialFileRef.current) handleFile(initialFileRef.current); }, []);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
